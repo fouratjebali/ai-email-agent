@@ -1,0 +1,17 @@
+# Secrets 
+credentials.json
+token.json
+.env
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# VS Code
+.vscode/
+
+# Data
+data/training/*.json
