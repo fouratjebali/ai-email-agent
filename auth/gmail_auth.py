@@ -4,6 +4,10 @@ from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
+
+class AuthenticationError(RuntimeError):
+    pass
+
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.send",
@@ -30,10 +34,19 @@ def get_gmail_service():
             creds.refresh(Request())
         else:
             # Première fois : ouvrir le navigateur
-            flow = InstalledAppFlow.from_client_secrets_file(
-                "credentials.json", SCOPES
-            )
-            creds = flow.run_local_server(port=0)
+            try:
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    "credentials.json", SCOPES
+                )
+                creds = flow.run_local_server(port=0)
+            except KeyboardInterrupt as exc:
+                raise AuthenticationError(
+                    "Authentification Gmail annulée. Relancez le script et terminez la connexion dans le navigateur."
+                ) from exc
+            except Exception as exc:
+                raise AuthenticationError(
+                    "Impossible de finaliser l'authentification Gmail. Vérifiez credentials.json et réessayez."
+                ) from exc
 
         # Sauvegarder pour les prochains appels
         with open("token.json", "w") as token:

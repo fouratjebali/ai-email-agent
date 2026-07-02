@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     OLLAMA_MODEL: str = "llama3.1"
     MAX_EMAILS: int = 10
     LOG_LEVEL: str = "INFO"
+    client_id: str | None = None
+    client_secret: str | None = None
 
     class Config:
         env_file = ".env"

@@ -5,6 +5,7 @@ from langchain_ollama import OllamaLLM
 from langchain_core.prompts import PromptTemplate
 from gmail.reader import fetch_emails
 from config.settings import settings
+from auth.gmail_auth import AuthenticationError
 
 console = Console()
 
@@ -93,18 +94,21 @@ Respond ONLY with this exact JSON format (no other text):
 
 
 if __name__ == "__main__":
-    console.print(Panel(
-        "[bold]AI Email Agent — Day 1 Setup Test[/bold]",
-        style="bold blue"
-    ))
+    try:
+        console.print(Panel(
+            "[bold]AI Email Agent — Day 1 Setup Test[/bold]",
+            style="bold blue"
+        ))
 
-    # Test 1 : Gmail
-    emails = test_gmail_connection()
+        # Test 1 : Gmail
+        emails = test_gmail_connection()
 
-    # Test 2 : LLM
-    llm = test_llm_connection()
+        # Test 2 : LLM
+        llm = test_llm_connection()
 
-    # Test 3 : Analyse
-    test_email_analysis(emails, llm)
+        # Test 3 : Analyse
+        test_email_analysis(emails, llm)
 
-    console.print("\n[bold green]✓ Day 1 complet ! Tout fonctionne.[/bold green]\n")
+        console.print("\n[bold green]Tout fonctionne.[/bold green]\n")
+    except AuthenticationError as exc:
+        console.print(f"[red]{exc}[/red]")
