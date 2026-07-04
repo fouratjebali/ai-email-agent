@@ -69,7 +69,11 @@ def run_agent_interactive():
 
     # Initialiser l'agent (charge le LLM une seule fois)
     console.print("[yellow]Loading agent...[/yellow]")
-    agent = EmailAgent()
+    try:
+        agent = EmailAgent()
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        return
     console.print("[green]Agent ready.[/green]\n")
 
     while True:
@@ -128,7 +132,11 @@ def run_agent_interactive():
 
 def run_demo_scenarios():
     """Lance 3 scénarios de démo automatiquement."""
-    agent = EmailAgent()
+    try:
+        agent = EmailAgent()
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        return
 
     scenarios = [
         {

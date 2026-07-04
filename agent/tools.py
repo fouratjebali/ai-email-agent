@@ -1,11 +1,59 @@
 import json
-from langchain_core.tools import tool
+import re
 from gmail.reader import fetch_emails, fetch_single_email
 from gmail.sender import send_email as gmail_send, send_bulk_emails
 from agent.chains import EmailChains
 
+try:
+    from langchain_core.tools import tool
+except ImportError:
+    class _SimpleTool:
+        def __init__(self, func):
+            self.func = func
+            self.name = func.__name__
+
+        def invoke(self, input_data=None):
+            if input_data is None:
+                input_data = {}
+            if not isinstance(input_data, dict):
+                raise TypeError("Tool input must be a dictionary")
+            return self.func(**input_data)
+
+        def __call__(self, *args, **kwargs):
+            return self.func(*args, **kwargs)
+
+    def tool(func):
+        return _SimpleTool(func)
+
 # Instance partagée des chains (évite de recharger le LLM à chaque appel)
 _chains = EmailChains()
+
+
+_GMAIL_ID_HINTS = (
+    "first email id",
+    "second email id",
+    "third email id",
+    "fourth email id",
+    "fifth email id",
+    "email id from read_emails output",
+    "paste",
+    "placeholder",
+)
+
+
+def _validate_email_id(email_id: str) -> str | None:
+    cleaned_id = email_id.strip()
+    if not cleaned_id:
+        return "Email ID is required. Copy the exact id from read_emails output."
+
+    lowered = cleaned_id.lower()
+    if any(hint in lowered for hint in _GMAIL_ID_HINTS):
+        return "Invalid placeholder email ID. Copy the exact id value from read_emails output."
+
+    if re.search(r"\s", cleaned_id):
+        return "Invalid email ID format. Gmail message IDs do not contain spaces."
+
+    return None
 
 
 # OUTIL 1 : Lire les emails
@@ -63,9 +111,17 @@ def classify_email(email_id: str) -> str:
     Returns:
         JSON string with category, confidence score, and reason
     """
-    email = fetch_single_email(email_id)
+    validation_error = _validate_email_id(email_id)
+    if validation_error:
+        return json.dumps({"error": validation_error, "email_id": email_id}, ensure_ascii=False)
+
+    try:
+        email = fetch_single_email(email_id)
+    except Exception as exc:
+        return json.dumps({"error": str(exc), "email_id": email_id}, ensure_ascii=False)
+
     if not email:
-        return json.dumps({"error": f"Email {email_id} not found"})
+        return json.dumps({"error": f"Email {email_id} not found", "email_id": email_id}, ensure_ascii=False)
 
     result = _chains.classify(
         subject=email.subject,
@@ -97,9 +153,17 @@ def prioritize_email(email_id: str, category: str = "UNKNOWN") -> str:
     Returns:
         JSON string with priority, urgency score (1-10), and reason
     """
-    email = fetch_single_email(email_id)
+    validation_error = _validate_email_id(email_id)
+    if validation_error:
+        return json.dumps({"error": validation_error, "email_id": email_id}, ensure_ascii=False)
+
+    try:
+        email = fetch_single_email(email_id)
+    except Exception as exc:
+        return json.dumps({"error": str(exc), "email_id": email_id}, ensure_ascii=False)
+
     if not email:
-        return json.dumps({"error": f"Email {email_id} not found"})
+        return json.dumps({"error": f"Email {email_id} not found", "email_id": email_id}, ensure_ascii=False)
 
     result = _chains.prioritize(
         subject=email.subject,
@@ -129,9 +193,17 @@ def summarize_email(email_id: str) -> str:
     Returns:
         JSON string with summary, required action, and detected language
     """
-    email = fetch_single_email(email_id)
+    validation_error = _validate_email_id(email_id)
+    if validation_error:
+        return json.dumps({"error": validation_error, "email_id": email_id}, ensure_ascii=False)
+
+    try:
+        email = fetch_single_email(email_id)
+    except Exception as exc:
+        return json.dumps({"error": str(exc), "email_id": email_id}, ensure_ascii=False)
+
     if not email:
-        return json.dumps({"error": f"Email {email_id} not found"})
+        return json.dumps({"error": f"Email {email_id} not found", "email_id": email_id}, ensure_ascii=False)
 
     result = _chains.summarize(
         subject=email.subject,
@@ -168,9 +240,17 @@ def suggest_reply(
     Returns:
         JSON string with suggested reply text and subject line
     """
-    email = fetch_single_email(email_id)
+    validation_error = _validate_email_id(email_id)
+    if validation_error:
+        return json.dumps({"error": validation_error, "email_id": email_id}, ensure_ascii=False)
+
+    try:
+        email = fetch_single_email(email_id)
+    except Exception as exc:
+        return json.dumps({"error": str(exc), "email_id": email_id}, ensure_ascii=False)
+
     if not email:
-        return json.dumps({"error": f"Email {email_id} not found"})
+        return json.dumps({"error": f"Email {email_id} not found", "email_id": email_id}, ensure_ascii=False)
 
     summary_result = _chains.summarize(
         subject=email.subject,

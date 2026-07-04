@@ -1,8 +1,4 @@
 import os
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
 
 
 class AuthenticationError(RuntimeError):
@@ -21,6 +17,16 @@ def get_gmail_service():
     Lance le navigateur pour la première authentification,
     puis réutilise le token.json pour les fois suivantes.
     """
+    try:
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request
+        from google_auth_oauthlib.flow import InstalledAppFlow
+        from googleapiclient.discovery import build
+    except ImportError as exc:
+        raise AuthenticationError(
+            "Les dépendances Google Gmail ne sont pas installées. Installez requirements.txt avant d'utiliser Gmail."
+        ) from exc
+
     creds = None
 
     # Si un token existe déjà, le charger
