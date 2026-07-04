@@ -1,42 +1,30 @@
 from typing import Annotated, TypedDict
-from urllib.error import URLError
-from urllib.request import urlopen
 from langchain_ollama import ChatOllama
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage, AIMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from agent.tools import ALL_TOOLS
+from agent.memory import ConversationMemory, SYSTEM_PROMPT_WITH_MEMORY
 from config.settings import settings
 
-# 1. Définir l'état du graphe
+
+# ----------------------------------------------------------
+# État du graphe
+# ----------------------------------------------------------
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
 
 
-# 2. Prompt système de l'agent
-SYSTEM_PROMPT = """You are an email assistant with Gmail tools.
-
-Rules:
-1. Use read_emails before any analysis.
-2. Use the exact email IDs from tool output only.
-3. Never invent placeholder IDs or paraphrase them.
-4. If you need IDs, copy them verbatim from the JSON returned by read_emails.
-5. Call exactly one tool per assistant turn.
-6. Do not request classify_email, prioritize_email, summarize_email, or suggest_reply until after read_emails has returned real IDs.
-7. Show email content before sending anything.
-8. Reply in the user's language.
-9. Keep responses concise and actionable.
-"""
-
-
-# 3. Construire le graphe LangGraph
+# ----------------------------------------------------------
+# Agent principal avec mémoire
+# ----------------------------------------------------------
 class EmailAgent:
-    def __init__(self):
-        self._ensure_ollama_available()
+    """
+    Agent ReAct pour la gestion des emails avec mémoire conversationnelle.
+    """
 
-        # LLM avec les outils bindés
+    def __init__(self):
         self.llm = ChatOllama(
             base_url=settings.OLLAMA_BASE_URL,
             model=settings.OLLAMA_MODEL,
@@ -44,28 +32,17 @@ class EmailAgent:
             num_predict=settings.OLLAMA_NUM_PREDICT,
             client_kwargs={"timeout": settings.OLLAMA_TIMEOUT_SECONDS},
         )
-
-        # Binder les outils au LLM
         self.llm_with_tools = self.llm.bind_tools(ALL_TOOLS)
-
-        # Construire le graphe
-        self.graph = self._build_graph()
-
-    def _ensure_ollama_available(self) -> None:
-        health_url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/tags"
-        try:
-            with urlopen(health_url, timeout=3):
-                return
-        except (URLError, TimeoutError, OSError) as exc:
-            raise RuntimeError(
-                f"Cannot reach Ollama at {settings.OLLAMA_BASE_URL}. Start Ollama or update OLLAMA_BASE_URL before running the agent."
-            ) from exc
+        self.memory = ConversationMemory()
+        self.graph  = self._build_graph()
 
     def _agent_node(self, state: AgentState) -> AgentState:
-        # Ajouter le système prompt au début si c'est le premier appel
+        """Nœud LLM : raisonne et décide de l'action suivante."""
         messages = state["messages"]
+
+        # Injecter le system prompt s'il n'est pas encore là
         if not any(isinstance(m, SystemMessage) for m in messages):
-            messages = [SystemMessage(content=SYSTEM_PROMPT)] + messages
+            messages = [SystemMessage(content=SYSTEM_PROMPT_WITH_MEMORY)] + messages
 
         response = self.llm_with_tools.invoke(messages)
 
@@ -82,54 +59,98 @@ class EmailAgent:
         return {"messages": [response]}
 
     def _build_graph(self) -> StateGraph:
-        # Créer le graphe avec notre état
-        graph_builder = StateGraph(AgentState)
+        """Construit le graphe LangGraph."""
+        builder = StateGraph(AgentState)
+        builder.add_node("agent", self._agent_node)
+        builder.add_node("tools", ToolNode(tools=ALL_TOOLS))
+        builder.add_edge(START, "agent")
+        builder.add_conditional_edges("agent", tools_condition)
+        builder.add_edge("tools", "agent")
+        return builder.compile()
 
-        # Nœud 1 : l'agent (LLM qui décide)
-        graph_builder.add_node("agent", self._agent_node)
+    def chat(self, user_message: str) -> str:
+        """
+        Envoie un message à l'agent en conservant la mémoire.
+        C'est la méthode principale pour la conversation continue.
 
-        # Nœud 2 : les outils (exécution des tools)
-        tool_node = ToolNode(tools=ALL_TOOLS)
-        graph_builder.add_node("tools", tool_node)
+        Args:
+            user_message : instruction de l'utilisateur
 
-        # Point d'entrée
-        graph_builder.add_edge(START, "agent")
+        Returns:
+            Réponse finale de l'agent
+        """
+        # Résumer si l'historique est trop long
+        if self.memory.should_summarize():
+            self.memory.summarize()
 
-        # Après l'agent : aller aux tools OU terminer
-        graph_builder.add_conditional_edges(
-            "agent",
-            tools_condition,   # vérifie si le LLM a demandé un tool call
-        )
+        # Ajouter le message utilisateur à la mémoire
+        self.memory.add_human(user_message)
 
-        # Après les tools : toujours revenir à l'agent
-        graph_builder.add_edge("tools", "agent")
+        # Construire l'état initial avec TOUT l'historique
+        initial_state = {"messages": self.memory.get_full_history()}
+        initial_message_count = len(initial_state["messages"])
 
-        return graph_builder.compile()
-
-    def run(self, instruction: str) -> str:
-        initial_state = {
-            "messages": [HumanMessage(content=instruction)]
-        }
-
+        # Lancer le graphe
         final_state = self.graph.invoke(
             initial_state,
-            config={"recursion_limit": 25},  # max 25 itérations
+            config={"recursion_limit": 30},
         )
 
-        # Retourner le dernier message de l'agent
+        # Extraire la réponse finale
         last_message = final_state["messages"][-1]
-        return last_message.content
+        response     = last_message.content
 
-    def stream(self, instruction: str):
-        initial_state = {
-            "messages": [HumanMessage(content=instruction)]
-        }
+        # Sauvegarder tous les nouveaux messages de ce tour dans la mémoire
+        for message in final_state["messages"][initial_message_count:]:
+            self.memory.add_message(message)
+
+        # Si le dernier message n'était pas une réponse texte, conserver au moins
+        # une trace lisible du résultat final.
+        return response
+
+    def stream_chat(self, user_message: str):
+        """
+        Version streaming de chat() — affiche chaque étape en temps réel.
+
+        Yields:
+            Tuples (node_name, message)
+        """
+        if self.memory.should_summarize():
+            self.memory.summarize()
+
+        self.memory.add_human(user_message)
+
+        initial_state = {"messages": self.memory.get_full_history()}
+        final_response = ""
+        turn_messages: list[BaseMessage] = []
 
         for event in self.graph.stream(
             initial_state,
-            config={"recursion_limit": 25},
+            config={"recursion_limit": 30},
         ):
             for node_name, state_update in event.items():
                 messages = state_update.get("messages", [])
                 for msg in messages:
+                    content    = getattr(msg, "content", "")
+                    tool_calls = getattr(msg, "tool_calls", [])
+                    if content and not tool_calls and node_name == "agent":
+                        final_response = content
+                    turn_messages.append(msg)
                     yield node_name, msg
+
+        for message in turn_messages:
+            self.memory.add_message(message)
+
+        if not final_response and len(turn_messages) > 0:
+            final_response = getattr(turn_messages[-1], "content", "")
+
+    def reset_memory(self) -> None:
+        """Réinitialise la mémoire (nouvelle conversation)."""
+        self.memory.clear()
+
+    # Alias pour compatibilité Day 3
+    def run(self, instruction: str) -> str:
+        return self.chat(instruction)
+
+    def stream(self, instruction: str):
+        return self.stream_chat(instruction)

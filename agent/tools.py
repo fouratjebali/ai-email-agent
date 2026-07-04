@@ -395,6 +395,69 @@ def get_urgent_emails(max_results: int = 20) -> str:
     }, ensure_ascii=False)
 
 
+# OUTIL 9 : Bulk email intelligent avec personnalisation
+@tool
+def generate_and_send_bulk_emails(
+    recipients_json: str,
+    topic: str,
+    instructions: str = "",
+    dry_run: bool = False,
+) -> str:
+    """
+    Generates and sends PERSONALIZED emails to multiple recipients.
+    Each email is uniquely tailored to the recipient's role and context.
+    Use this when the user wants to send DIFFERENT content to different people.
+
+    Args:
+        recipients_json : JSON string with list of recipients. Each must have:
+                          'name'    : recipient's full name
+                          'email'   : email address
+                          'role'    : their job role/position
+                          'context' : specific context for personalization
+                          Example:
+                          '[
+                            {"name":"Alice","email":"alice@co.com",
+                             "role":"Chef de projet",
+                             "context":"Elle gère le projet X, demande un point"},
+                            {"name":"Bob","email":"bob@co.com",
+                             "role":"Développeur",
+                             "context":"En retard sur la deadline du module Y"}
+                          ]'
+        topic        : the general topic/purpose of all emails
+        instructions : additional writing instructions (tone, content to include)
+        dry_run      : if True, generates but does NOT send (for preview)
+
+    Returns:
+        JSON string with generation and send results per recipient
+    """
+    from agent.bulk_generator import BulkEmailGenerator, Recipient
+
+    try:
+        raw_recipients = json.loads(recipients_json)
+    except json.JSONDecodeError:
+        return json.dumps({"error": "Invalid JSON for recipients_json"})
+
+    recipients = [
+        Recipient(
+            name=r.get("name", "Unknown"),
+            email=r.get("email", ""),
+            role=r.get("role", "Collaborateur"),
+            context=r.get("context", ""),
+        )
+        for r in raw_recipients
+    ]
+
+    generator = BulkEmailGenerator()
+    results   = generator.generate_and_send(
+        recipients=recipients,
+        topic=topic,
+        instructions=instructions,
+        send=not dry_run,
+    )
+
+    return generator.results_to_json(results)
+
+
 # Liste de tous les outils (importée par l'agent)
 ALL_TOOLS = [
     read_emails,
@@ -405,4 +468,5 @@ ALL_TOOLS = [
     send_single_email,
     send_bulk_email,
     get_urgent_emails,
+    generate_and_send_bulk_emails,
 ]
