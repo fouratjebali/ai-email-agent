@@ -30,6 +30,10 @@ class _Parser:
         if fenced:
             candidates.insert(0, fenced.group(1).strip())
 
+        embedded = re.search(r"\{.*\}", text, re.DOTALL)
+        if embedded:
+            candidates.insert(0, embedded.group(0).strip())
+
         for candidate in candidates:
             try:
                 parsed = json.loads(candidate)
@@ -42,3 +46,9 @@ class _Parser:
 
 
 parser = _Parser()
+
+
+class LLMOutputParser:
+    @staticmethod
+    def parse(raw: Any, default: dict | None = None) -> dict:
+        return parser.safe_parse(raw, default=default)

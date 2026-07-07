@@ -15,3 +15,10 @@ __pycache__/
 
 # Data
 data/training/*.json
+
+# Data logs — can be large
+data/logs/
+
+# OS
+.DS_Store
+Thumbs.db
