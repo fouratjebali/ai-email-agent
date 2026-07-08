@@ -1,5 +1,6 @@
 import time
 import sys
+import os
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -7,6 +8,13 @@ from rich.rule import Rule
 from rich.markdown import Markdown
 from rich import box
 from rich.progress import Progress, SpinnerColumn, TextColumn
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, PROJECT_ROOT)
+
+from agent.agent import EmailAgent
+from agent.pipeline import EmailPipeline
+from gmail.reader import fetch_emails
 
 console = Console()
 
@@ -152,17 +160,37 @@ def scenario_3(agent) -> None:
     print_scenario_header(3, SCENARIOS[3])
     console.print(
         "  L'agent lit les emails non lus, identifie ceux qui\n"
-        "  nécessitent une réponse (SUPPORT et RECLAMATION),\n"
+        "  nécessitent une réponse,\n"
         "  et génère une réponse professionnelle pour chacun.\n"
     )
     pause()
 
-    run_agent_with_display(
-        agent,
-        "Read my unread emails, find any that need a reply "
-        "(SUPPORT or RECLAMATION category), and generate a "
-        "professional response for each one."
-    )
+    console.print("\n  [bold cyan]Instruction :[/bold cyan] Process unread emails and suggest replies for SUPPORT/RECLAMATION\n")
+
+    emails = fetch_emails(max_results=20, query="is:unread")
+    if not emails:
+        console.print("  [yellow]No unread emails found.[/yellow]")
+        return
+
+    pipeline = EmailPipeline()
+    replied_count = 0
+
+    for email in emails:
+        result = pipeline.analyze(email)
+        replied_count += 1
+        console.print(Panel(
+            f"[bold]{email.subject}[/bold]\n"
+            f"From: {email.sender}\n"
+            f"Category: {result.classification.category}\n"
+            f"Priority: {result.priority.priority} ({result.priority.urgency_score}/10)\n\n"
+            f"[bold]Suggested reply:[/bold]\n{result.reply.reply}",
+            title=f"Reply suggestion #{replied_count}",
+            border_style="green",
+            box=box.ROUNDED,
+        ))
+
+    if replied_count == 0:
+        console.print("  [yellow]No emails found in the unread inbox.[/yellow]")
     pause(2)
 
 
@@ -222,3 +250,25 @@ def scenario_5(agent) -> None:
         "which one has the highest urgency score ?"
     )
     pause(1.5)
+
+
+def main() -> None:
+    console.print("[bold yellow]Loading agent...[/bold yellow]")
+    agent = EmailAgent()
+    console.print("[green]Agent ready.[/green]")
+
+    scenarios = [scenario_1, scenario_2, scenario_3, scenario_4, scenario_5]
+    if len(sys.argv) > 1:
+        try:
+            selected = int(sys.argv[1])
+            if 1 <= selected <= len(scenarios):
+                scenarios = [scenarios[selected - 1]]
+        except ValueError:
+            pass
+
+    for scenario in scenarios:
+        scenario(agent)
+
+
+if __name__ == "__main__":
+    main()

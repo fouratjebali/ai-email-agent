@@ -253,6 +253,8 @@ class EmailChains:
         )
 
     def _rule_based_reply(self, subject: str, sender: str, body: str, category: str, priority: str, summary: str):
+        text = self._normalize_text(subject, sender, body)
+
         if category == "RECLAMATION":
             reply_subject = f"Re: {subject}" if subject else "Re: Your message"
             reply = (
@@ -280,11 +282,20 @@ class EmailChains:
                 "Cordialement,"
             )
             tone = "professional"
+        elif self._contains_any(text, ("linkedin", "demande de connexion", "connection request", "invitation")):
+            reply_subject = f"Re: {subject}" if subject else "Re: Your invitation"
+            reply = (
+                "Bonjour,\n\n"
+                "Merci pour votre invitation et pour la prise de contact. "
+                "Je vais la consulter avec attention et revenir vers vous si nécessaire.\n\n"
+                "Cordialement,"
+            )
+            tone = "courteous"
         else:
             reply_subject = f"Re: {subject}" if subject else "Re: Your message"
             reply = (
                 "Bonjour,\n\n"
-                "Merci pour votre message. Nous l'avons bien reçu et nous revenons vers vous si une action est nécessaire.\n\n"
+                "Merci pour votre message. Je prends note de cette information et reviendrai vers vous si une action est nécessaire.\n\n"
                 "Cordialement,"
             )
             tone = "neutral"

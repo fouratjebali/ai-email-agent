@@ -103,7 +103,7 @@ def run_bulk_demo(agent: EmailAgent) -> None:
 
 def run_interactive(agent: EmailAgent) -> None:
     """Boucle de conversation interactive."""
-    console.print(Panel(HELP_TEXT, title="[bold blue]AI Email Agent — Day 4[/bold blue]",
+    console.print(Panel(HELP_TEXT, title="[bold blue]AI Email Agent[/bold blue]",
                         border_style="blue", box=box.ROUNDED))
 
     while True:
