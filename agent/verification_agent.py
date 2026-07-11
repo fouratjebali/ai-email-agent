@@ -3,41 +3,58 @@ from typing import Dict, List
 import json
 import os
 import re
+import uuid
+
 from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, SystemMessage
+
 from config.settings import settings
+
+
 class ResponseValidatorAgent:
     """
-    Agent 2:
-    Hybrid email response validator.
+    Agent 2 V2:
+    Advanced Hybrid Email Response Validator
 
     Features:
-    - Rule based validation
-    - Ollama semantic validation
-    - Risk assessment
-    - Explainability report
-    - Human feedback storage
-    - Security checks
+    - Rule validation
+    - AI semantic validation
+    - Security validation
+    - Quality scoring
+    - Hybrid scoring
+    - Decision engine
+    - Explainability
+    - Human feedback
+    - Validation history
     """
-
 
     def __init__(
         self,
         confidence_threshold: int = 80
     ):
 
-        self.name = "Response Validator Agent"
+        self.name = "Response Validator Agent V2"
 
         self.confidence_threshold = confidence_threshold
+
 
         self.llm = ChatOllama(
             base_url=settings.OLLAMA_BASE_URL,
             model=settings.OLLAMA_MODEL,
             temperature=0,
-            num_predict=500,
+            num_predict=600,
             client_kwargs={
                 "timeout": settings.OLLAMA_TIMEOUT_SECONDS
             }
+        )
+
+
+        self.history_file = (
+            "data/validation_history.json"
+        )
+
+        self.feedback_file = (
+            "data/feedback.json"
         )
 
 
@@ -48,7 +65,7 @@ class ResponseValidatorAgent:
 
     def _extract_words(
         self,
-        text: str
+        text:str
     ) -> List[str]:
 
         return re.findall(
@@ -58,9 +75,10 @@ class ResponseValidatorAgent:
         )
 
 
+
     def _extract_sentences(
         self,
-        text: str
+        text:str
     ) -> List[str]:
 
         return [
@@ -73,36 +91,58 @@ class ResponseValidatorAgent:
         ]
 
 
+
     # ======================================================
-    # SECURITY CHECK
+    # SECURITY VALIDATION
     # ======================================================
 
 
-    def _security_check(
+    def _security_validation(
         self,
-        response: str
+        response:str
     ) -> Dict:
 
 
-        patterns = [
+        risks = []
 
+
+        security_patterns = {
+
+            "password":
             r"password\s*[:=]\s*\S+",
 
+
+            "api_key":
             r"api[_\s-]?key\s*[:=]\s*\S+",
 
+
+            "secret":
             r"secret\s*[:=]\s*\S+",
 
-            r"access[_\s-]?token\s*[:=]\s*\S+",
 
-            r"bearer\s+[a-zA-Z0-9._\-]+",
+            "token":
+            r"(bearer\s+|access[_\s-]?token\s*[:=])\S+",
 
+
+            "private_key":
             r"-----BEGIN PRIVATE KEY-----",
 
-            r"\b\d{16}\b"
-        ]
+
+            "credit_card":
+            r"\b\d{16}\b",
 
 
-        for pattern in patterns:
+            "iban":
+            r"\b[A-Z]{2}[0-9]{2}[A-Z0-9]{10,30}\b",
+
+
+            "phone_number":
+            r"\b\d{8,15}\b"
+        }
+
+
+
+        for name, pattern in security_patterns.items():
 
             if re.search(
                 pattern,
@@ -110,20 +150,39 @@ class ResponseValidatorAgent:
                 flags=re.IGNORECASE
             ):
 
-                return {
-                    "safe": False,
-                    "issue":
-                    "Sensitive information detected"
-                }
+                risks.append(name)
+
+
+
+        if risks:
+
+            return {
+
+                "score":20,
+
+                "safe":False,
+
+                "risks":risks,
+
+                "message":
+                "Sensitive information detected"
+
+            }
+
 
 
         return {
-            "safe": True,
-            "issue": None
+
+            "score":100,
+
+            "safe":True,
+
+            "risks":[],
+
+            "message":
+            "No security issue detected"
+
         }
-
-
-
     # ======================================================
     # RULE VALIDATION
     # ======================================================
@@ -131,8 +190,8 @@ class ResponseValidatorAgent:
 
     def _validate_rules(
         self,
-        original_email: str,
-        generated_response: str
+        original_email:str,
+        generated_response:str
     ) -> Dict:
 
 
@@ -145,34 +204,36 @@ class ResponseValidatorAgent:
 
         if not original_email.strip():
 
+            score -= 40
+
             issues.append(
                 "Original email missing"
             )
 
             suggestions.append(
-                "Provide original email"
+                "Provide original customer email"
             )
-
-            score -= 40
-
 
 
         if not generated_response.strip():
+
+            score -= 60
 
             issues.append(
                 "Generated response empty"
             )
 
             suggestions.append(
-                "Generate a valid response"
+                "Generate a response"
             )
-
-            score -= 60
 
 
             return {
-                "score": max(score,0),
+
+                "score":max(score,0),
+
                 "issues":issues,
+
                 "suggestions":suggestions
             }
 
@@ -192,101 +253,61 @@ class ResponseValidatorAgent:
 
 
 
-        # Length check
+        # Response length
 
         if word_count < 5:
+
+            score -= 25
 
             issues.append(
                 "Response too short"
             )
 
             suggestions.append(
-                "Provide more details"
+                "Add more information"
             )
 
-            score -=20
 
 
+        elif word_count < 15:
 
-        elif word_count < 10:
+            score -= 10
 
             issues.append(
-                "Response may lack details"
+                "Response lacks details"
             )
 
-            score -=5
 
 
-
-        # Sentence check
+        # Sentence structure
 
         if not sentences:
 
-            issues.append(
-                "No complete sentence"
-            )
-
-            score -=10
-
-
-
-        else:
-
-            average = (
-                word_count /
-                len(sentences)
-            )
-
-
-            if average < 2:
-
-                issues.append(
-                    "Fragmented response"
-                )
-
-                score -=10
-
-
-
-        # Security
-
-        security = self._security_check(
-            generated_response
-        )
-
-
-        if not security["safe"]:
+            score -= 10
 
             issues.append(
-                security["issue"]
+                "Invalid sentence structure"
             )
 
-            suggestions.append(
-                "Remove sensitive information"
-            )
 
-            score -=30
+        # Repetition detection
 
+        if word_count > 20:
 
-
-        # Repetition
-
-        if word_count >=20:
-
-            ratio = (
+            diversity = (
                 len(set(words))
                 /
                 word_count
             )
 
 
-            if ratio <0.35:
+            if diversity < 0.35:
+
+                score -= 10
 
                 issues.append(
                     "Excessive repetition"
                 )
-
-                score -=10
 
 
 
@@ -297,9 +318,129 @@ class ResponseValidatorAgent:
 
             "issues":
             issues,
+
             "suggestions":
             suggestions
+
         }
+
+
+
+
+    # ======================================================
+    # QUALITY VALIDATION
+    # ======================================================
+
+
+    def _quality_validation(
+        self,
+        response:str
+    ) -> Dict:
+
+
+        score = 100
+
+        issues = []
+
+
+
+        words = self._extract_words(
+            response
+        )
+
+
+
+        sentences = self._extract_sentences(
+            response
+        )
+
+
+
+        # Empty response
+
+        if not response.strip():
+
+            return {
+
+                "score":0,
+
+                "issues":[
+                    "Empty response"
+                ]
+
+            }
+
+
+
+        # Professional style
+
+        informal_patterns = [
+
+            r"\bok\b",
+
+            r"\byeah\b",
+
+            r"\bnope\b",
+
+            r"\bthx\b"
+
+        ]
+
+
+        for pattern in informal_patterns:
+
+            if re.search(
+                pattern,
+                response,
+                flags=re.IGNORECASE
+            ):
+
+                score -= 10
+
+                issues.append(
+                    "Informal language detected"
+                )
+
+
+
+        # Very long response
+
+        if len(words) > 250:
+
+            score -= 10
+
+            issues.append(
+                "Response too long"
+            )
+
+
+
+        # Missing structure
+
+        if len(sentences) < 2:
+
+            score -= 10
+
+            issues.append(
+                "Low readability"
+            )
+
+
+
+        return {
+
+            "score":
+            max(score,0),
+
+            "issues":
+            issues
+
+        }
+
+
+
+
+
     # ======================================================
     # AI SEMANTIC VALIDATION
     # ======================================================
@@ -307,25 +448,27 @@ class ResponseValidatorAgent:
 
     def _validate_with_ai(
         self,
-        original_email: str,
-        generated_response: str
+        original_email:str,
+        generated_response:str
     ) -> Dict:
+
+
 
         system_prompt = """
 
-You are a strict email response validation agent.
+You are an expert email validation AI.
 
-Analyze the generated response compared to the original email.
+Analyze the response compared to the original email.
 
-Check:
+Evaluate:
 
-- relevance
-- answering the request
+- customer intent matching
+- answer correctness
+- completeness
 - professional tone
-- clarity
+- hallucinations
+- unsupported claims
 - contradictions
-- invented information
-- unsafe content
 
 Return ONLY JSON.
 
@@ -336,24 +479,24 @@ Format:
  "relevant":true,
  "answers_request":true,
  "professional":true,
- "clear":true,
- "contradiction_detected":false,
- "unsupported_claims_detected":false,
+ "complete":true,
+ "contradiction":false,
+ "hallucination":false,
  "issues":[],
  "suggestions":[]
 }
 
-Score must be between 0 and 100.
+Score 0-100.
 
 No markdown.
-No explanation.
 
 """
 
 
+
         user_prompt = f"""
 
-ORIGINAL EMAIL:
+CUSTOMER EMAIL:
 
 {original_email}
 
@@ -365,170 +508,260 @@ GENERATED RESPONSE:
 """
 
 
-        # Retry mechanism
 
-        attempts = 2
-
-
-        for attempt in range(attempts):
-
-            try:
-
-                result = self.llm.invoke(
-                    [
-                        SystemMessage(
-                            content=system_prompt
-                        ),
-
-                        HumanMessage(
-                            content=user_prompt
-                        )
-                    ]
-                )
+        try:
 
 
-                content = str(
-                    result.content
-                ).strip()
+            result = self.llm.invoke(
 
+                [
 
+                    SystemMessage(
+                        content=system_prompt
+                    ),
 
-                content = re.sub(
-                    r"^```(?:json)?\s*",
-                    "",
-                    content,
-                    flags=re.IGNORECASE
-                )
-
-
-                content = re.sub(
-                    r"\s*```$",
-                    "",
-                    content
-                )
-
-
-
-                data = json.loads(
-                    content
-                )
-
-
-
-                score = int(
-                    data.get(
-                        "score",
-                        0
+                    HumanMessage(
+                        content=user_prompt
                     )
+
+                ]
+
+            )
+
+
+
+            content = str(
+                result.content
+            ).strip()
+
+
+
+            content = re.sub(
+                r"```json|```",
+                "",
+                content
+            ).strip()
+
+
+
+            data = json.loads(
+                content
+            )
+
+
+
+            return {
+
+                "success":True,
+
+                "score":
+                max(
+                    0,
+                    min(
+                        int(data.get("score",0)),
+                        100
+                    )
+                ),
+
+                "relevant":
+                bool(
+                    data.get(
+                        "relevant",
+                        False
+                    )
+                ),
+
+                "answers_request":
+                bool(
+                    data.get(
+                        "answers_request",
+                        False
+                    )
+                ),
+
+                "professional":
+                bool(
+                    data.get(
+                        "professional",
+                        False
+                    )
+                ),
+
+                "complete":
+                bool(
+                    data.get(
+                        "complete",
+                        False
+                    )
+                ),
+
+                "contradiction":
+                bool(
+                    data.get(
+                        "contradiction",
+                        False
+                    )
+                ),
+
+                "hallucination":
+                bool(
+                    data.get(
+                        "hallucination",
+                        False
+                    )
+                ),
+
+                "issues":
+                data.get(
+                    "issues",
+                    []
+                ),
+
+                "suggestions":
+                data.get(
+                    "suggestions",
+                    []
                 )
 
-
-                return {
-
-                    "success":True,
-
-                    "score":
-                    max(
-                        0,
-                        min(
-                            score,
-                            100
-                        )
-                    ),
-
-
-                    "relevant":
-                    bool(
-                        data.get(
-                            "relevant",
-                            False
-                        )
-                    ),
-
-
-                    "answers_request":
-                    bool(
-                        data.get(
-                            "answers_request",
-                            False
-                        )
-                    ),
-
-
-                    "professional":
-                    bool(
-                        data.get(
-                            "professional",
-                            False
-                        )
-                    ),
-
-
-                    "clear":
-                    bool(
-                        data.get(
-                            "clear",
-                            False
-                        )
-                    ),
-
-
-                    "contradiction_detected":
-                    bool(
-                        data.get(
-                            "contradiction_detected",
-                            False
-                        )
-                    ),
-
-
-                    "unsupported_claims_detected":
-                    bool(
-                        data.get(
-                            "unsupported_claims_detected",
-                            False
-                        )
-                    ),
-
-
-                    "issues":
-                    data.get(
-                        "issues",
-                        []
-                    ),
-
-
-                    "suggestions":
-                    data.get(
-                        "suggestions",
-                        []
-                    )
-                }
+            }
 
 
 
-            except Exception as error:
+        except Exception as e:
 
 
-                if attempt == attempts-1:
+            return {
 
-                    return {
+                "success":False,
 
-                        "success":False,
+                "score":0,
 
-                        "score":0,
+                "issues":[
+                    "AI validation unavailable"
+                ],
 
-                        "issues":[
-                            "Ollama validation failed"
-                        ],
+                "suggestions":[
+                    "Human review required"
+                ],
 
-                        "suggestions":[
-                            "Manual review required"
-                        ],
+                "error":
+                str(e)
 
-                        "error":
-                        str(error)
-                    }
+            }
+    # ======================================================
+    # HYBRID SCORE
+    # ======================================================
+
+
+    def _calculate_final_score(
+        self,
+        rule_score:int,
+        ai_score:int,
+        security_score:int,
+        quality_score:int
+    ) -> int:
+
+
+        score = (
+
+            rule_score * 0.30
+
+            +
+
+            ai_score * 0.40
+
+            +
+
+            security_score * 0.20
+
+            +
+
+            quality_score * 0.10
+
+        )
+
+
+        return round(score)
+
+
+
+
+    # ======================================================
+    # DECISION ENGINE
+    # ======================================================
+
+
+    def _decision_engine(
+        self,
+        score:int,
+        security_safe:bool,
+        semantic_pass:bool
+    ) -> Dict:
+
+
+        if not security_safe:
+
+            return {
+
+                "decision":
+                "BLOCKED",
+
+                "action":
+                "BLOCK_RESPONSE"
+
+            }
+
+
+
+        if (
+
+            score >= 85
+
+            and
+
+            semantic_pass
+
+        ):
+
+            return {
+
+                "decision":
+                "APPROVED",
+
+                "action":
+                "SEND_EMAIL"
+
+            }
+
+
+
+        elif score >=60:
+
+            return {
+
+                "decision":
+                "NEEDS_REVIEW",
+
+                "action":
+                "HUMAN_REVIEW"
+
+            }
+
+
+
+        else:
+
+            return {
+
+                "decision":
+                "REJECTED",
+
+                "action":
+                "REGENERATE_RESPONSE"
+
+            }
+
+
 
 
 
@@ -537,14 +770,13 @@ GENERATED RESPONSE:
     # ======================================================
 
 
-    def _calculate_risk_level(
+    def _risk_level(
         self,
-        score:int,
-        issues:List[str]
+        score:int
     ) -> str:
 
 
-        if score >=85 and not issues:
+        if score >=85:
 
             return "LOW"
 
@@ -554,9 +786,16 @@ GENERATED RESPONSE:
             return "MEDIUM"
 
 
-        else:
+        elif score >=30:
 
             return "HIGH"
+
+
+        else:
+
+            return "CRITICAL"
+
+
 
 
 
@@ -565,58 +804,99 @@ GENERATED RESPONSE:
     # ======================================================
 
 
-    def _generate_explanation(
+    def _explainability(
         self,
-        rule_score,
-        ai_score,
-        issues
-    ):
-
-
-        if not issues:
-
-            decision = (
-                "All validation checks passed"
-            )
-
-        else:
-
-            decision = (
-                "Review required because "
-                "problems were detected"
-            )
-
+        scores:Dict,
+        issues:List[str],
+        decision:str
+    ) -> Dict:
 
 
         return {
 
-            "rule_analysis":
-            f"Rule validation score: {rule_score}/100",
+
+            "scores":
+
+            scores,
 
 
-            "ai_analysis":
-            f"Semantic AI score: {ai_score}/100",
+            "detected_issues":
 
-
-            "detected_problems":
             issues,
 
 
+            "decision_reason":
+
+            (
+                "All checks passed"
+                if not issues
+
+                else
+
+                "Problems detected during validation"
+            ),
+
+
             "final_decision":
+
             decision
+
         }
 
 
 
+
+
     # ======================================================
-    # HUMAN FEEDBACK STORAGE
+    # SAVE VALIDATION HISTORY
+    # ======================================================
+
+
+    def _save_history(
+        self,
+        result:Dict
+    ):
+
+
+        os.makedirs(
+            "data",
+            exist_ok=True
+        )
+
+
+        with open(
+            self.history_file,
+            "a",
+            encoding="utf-8"
+        ) as file:
+
+
+            file.write(
+
+                json.dumps(
+                    result,
+                    ensure_ascii=False
+                )
+
+                +
+
+                "\n"
+
+            )
+
+
+
+
+
+    # ======================================================
+    # HUMAN FEEDBACK
     # ======================================================
 
 
     def save_feedback(
         self,
         email_id:str,
-        agent_result:str,
+        agent_decision:str,
         human_decision:str,
         comment:str=""
     ):
@@ -630,12 +910,16 @@ GENERATED RESPONSE:
 
         feedback = {
 
+            "id":
+            str(uuid.uuid4()),
+
+
             "email_id":
             email_id,
 
 
-            "agent_result":
-            agent_result,
+            "agent_decision":
+            agent_decision,
 
 
             "human_decision":
@@ -654,16 +938,29 @@ GENERATED RESPONSE:
 
 
         with open(
-            "data/feedback.json",
+            self.feedback_file,
             "a",
             encoding="utf-8"
         ) as file:
 
 
             file.write(
-                json.dumps(feedback)
-                + "\n"
+
+                json.dumps(
+                    feedback,
+                    ensure_ascii=False
+                )
+
+                +
+
+                "\n"
+
             )
+
+
+
+
+
     # ======================================================
     # MAIN VALIDATION
     # ======================================================
@@ -676,237 +973,189 @@ GENERATED RESPONSE:
     ) -> Dict:
 
 
-        # 1) Rule validation
-
-        rule_result = self._validate_rules(
+        rule = self._validate_rules(
             original_email,
             generated_response
         )
 
 
 
-        # Critical missing data
-
-        if (
-            not original_email.strip()
-            or not generated_response.strip()
-        ):
+        security = self._security_validation(
+            generated_response
+        )
 
 
-            risk = self._calculate_risk_level(
-                rule_result["score"],
-                rule_result["issues"]
-            )
+
+        quality = self._quality_validation(
+            generated_response
+        )
 
 
-            return {
+
+        # Missing data protection
+
+        if not original_email.strip() or not generated_response.strip():
+
+            result = {
 
                 "agent":
                 self.name,
-
-
-                "timestamp":
-                datetime.now().isoformat(),
 
 
                 "approved":
                 False,
 
 
-                "confidence_score":
-                rule_result["score"],
-
-
-                "risk_level":
-                risk,
-
-
-                "rule_score":
-                rule_result["score"],
-
-
-                "ai_score":
-                None,
-
-
-                "explainability":
-                self._generate_explanation(
-                    rule_result["score"],
-                    None,
-                    rule_result["issues"]
-                ),
-
-
-                "issues":
-                rule_result["issues"],
-
-
-                "suggestions":
-                rule_result["suggestions"],
+                "decision":
+                "REJECTED",
 
 
                 "action":
-                "REVIEW_REQUIRED"
+                "REGENERATE_RESPONSE",
+
+
+                "risk":
+                "CRITICAL",
+
+
+                "issues":
+                [
+                    "Missing input data"
+                ],
+
+                "timestamp":
+                datetime.now().isoformat()
+
             }
 
 
+            self._save_history(result)
+
+            return result
 
 
-        # 2) AI validation
 
 
-        ai_result = self._validate_with_ai(
+
+        ai = self._validate_with_ai(
+
             original_email,
+
             generated_response
+
         )
+
 
 
 
         # Ollama failure
 
+        if not ai["success"]:
 
-        if not ai_result["success"]:
-
-
-            issues = list(dict.fromkeys(
-                rule_result["issues"]
-                +
-                ai_result["issues"]
-            ))
-
-
-
-            risk = self._calculate_risk_level(
-                rule_result["score"],
-                issues
-            )
-
-
-
-            return {
+            result = {
 
                 "agent":
                 self.name,
-
-
-                "timestamp":
-                datetime.now().isoformat(),
 
 
                 "approved":
                 False,
 
 
-                "confidence_score":
-                rule_result["score"],
-
-
-                "risk_level":
-                risk,
-
-
-                "rule_score":
-                rule_result["score"],
-
-
-                "ai_score":
-                None,
-
-
-                "explainability":
-                self._generate_explanation(
-                    rule_result["score"],
-                    None,
-                    issues
-                ),
-
-
-                "issues":
-                issues,
-
-
-                "suggestions":
-                ai_result["suggestions"],
+                "decision":
+                "NEEDS_REVIEW",
 
 
                 "action":
-                "REVIEW_REQUIRED"
+                "HUMAN_REVIEW",
+
+
+                "risk":
+                "HIGH",
+
+
+                "issues":
+                [
+                    "AI validation unavailable"
+                ],
+
+
+                "timestamp":
+                datetime.now().isoformat()
+
             }
 
 
+            self._save_history(result)
+
+            return result
 
 
-        # 3) Hybrid score
 
 
-        final_score = round(
-            (
-                rule_result["score"]
-                *
-                0.40
-            )
-            +
-            (
-                ai_result["score"]
-                *
-                0.60
-            )
+
+        final_score = self._calculate_final_score(
+
+            rule["score"],
+
+            ai["score"],
+
+            security["score"],
+
+            quality["score"]
+
         )
 
 
 
-        # Merge issues
-
 
         issues = list(dict.fromkeys(
 
-            rule_result["issues"]
+            rule["issues"]
+
             +
-            ai_result["issues"]
+
+            ai["issues"]
+
+            +
+
+            quality["issues"]
+
+            +
+
+            security["risks"]
 
         ))
 
 
 
-        suggestions = list(dict.fromkeys(
-
-            rule_result["suggestions"]
-            +
-            ai_result["suggestions"]
-
-        ))
-
-
-
-        # 4) Semantic checks
 
 
         semantic_pass = all([
 
-            ai_result["relevant"],
+            ai["relevant"],
 
-            ai_result["answers_request"],
+            ai["answers_request"],
 
-            ai_result["professional"],
+            ai["professional"],
 
-            ai_result["clear"],
+            ai["complete"],
 
-            not ai_result["contradiction_detected"],
+            not ai["contradiction"],
 
-            not ai_result["unsupported_claims_detected"]
+            not ai["hallucination"]
 
         ])
 
 
 
 
-        approved = (
 
-            final_score
-            >=
-            self.confidence_threshold
+        decision = self._decision_engine(
 
-            and
+            final_score,
+
+            security["safe"],
 
             semantic_pass
 
@@ -914,20 +1163,9 @@ GENERATED RESPONSE:
 
 
 
-        # 5) Risk calculation
 
 
-        risk = self._calculate_risk_level(
-            final_score,
-            issues
-        )
-
-
-
-        # 6) Final response
-
-
-        return {
+        result = {
 
 
             "agent":
@@ -938,87 +1176,86 @@ GENERATED RESPONSE:
             datetime.now().isoformat(),
 
 
-
-            "approved":
-            approved,
-
-
-
             "confidence_score":
             final_score,
 
 
-
             "risk_level":
-            risk,
-
-
-
-            "rule_score":
-            rule_result["score"],
-
-
-
-            "ai_score":
-            ai_result["score"],
-
-
-
-            "semantic_checks":{
-
-
-                "relevant":
-                ai_result["relevant"],
-
-
-                "answers_request":
-                ai_result["answers_request"],
-
-
-                "professional":
-                ai_result["professional"],
-
-
-                "clear":
-                ai_result["clear"],
-
-
-                "contradiction_detected":
-                ai_result["contradiction_detected"],
-
-
-                "unsupported_claims_detected":
-                ai_result["unsupported_claims_detected"]
-
-            },
-
-
-
-            "explainability":
-            self._generate_explanation(
-                rule_result["score"],
-                ai_result["score"],
-                issues
+            self._risk_level(
+                final_score
             ),
 
+
+            "approved":
+            decision["decision"]
+            ==
+            "APPROVED",
+
+
+            "decision":
+            decision["decision"],
+
+
+            "action":
+            decision["action"],
+
+
+
+            "scores":{
+
+
+                "rules":
+                rule["score"],
+
+
+                "ai":
+                ai["score"],
+
+
+                "security":
+                security["score"],
+
+
+                "quality":
+                quality["score"]
+
+            },
 
 
             "issues":
             issues,
 
 
+            "explainability":
+            self._explainability(
 
-            "suggestions":
-            suggestions,
+                {
 
+                    "rules":
+                    rule["score"],
 
+                    "ai":
+                    ai["score"],
 
-            "action":
-            (
-                "SEND_EMAIL"
-                if approved
-                else
-                "REVIEW_REQUIRED"
+                    "security":
+                    security["score"],
+
+                    "quality":
+                    quality["score"]
+
+                },
+
+                issues,
+
+                decision["decision"]
+
             )
 
         }
+
+
+
+        self._save_history(result)
+
+
+        return result
