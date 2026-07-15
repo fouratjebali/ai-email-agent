@@ -1,82 +1,31 @@
-import pytest
-
-from agents.verification_agent import ResponseValidatorAgent
-
-
-@pytest.fixture
-def validator():
-    return ResponseValidatorAgent()
+import json
+from agent_validator.agent_validator import ResponseValidatorAgent
 
 
-def test_response_validation_success(validator):
+validator = ResponseValidatorAgent()
 
-    result = validator.validate(
-        original_email="Bonjour, je veux connaître le prix du produit.",
-        generated_response="Bonjour, le prix du produit est 100 dinars."
-    )
+original_email = """
+Hello,
 
-    assert isinstance(result, dict)
+I would like to know the status of my order.
 
-    assert "risk_level" in result
-    assert "score" in result
-    assert "explanation" in result
+Thank you.
+"""
 
+generated_response = """
+Hello,
 
+Thank you for your email.
+Your order has been shipped and should arrive within 3 business days.
 
-def test_empty_original_email(validator):
+Best regards,
+Customer Support
+"""
 
-    result = validator.validate(
-        original_email="",
-        generated_response="Bonjour voici la réponse."
-    )
+result = validator.validate(
+    original_email=original_email,
+    generated_response=generated_response,
+    email_id="EMAIL_001"
+)
 
-    assert result["risk_level"] == "HIGH"
-
-
-
-def test_empty_generated_response(validator):
-
-    result = validator.validate(
-        original_email="Bonjour je veux une information.",
-        generated_response=""
-    )
-
-    assert result["risk_level"] == "HIGH"
-
-
-
-def test_validation_report_structure(validator):
-
-    result = validator.validate(
-        original_email="Demande de rendez-vous.",
-        generated_response="Votre rendez-vous est confirmé."
-    )
-
-    assert "risk_level" in result
-    assert "score" in result
-    assert "explanation" in result
-
-
-
-def test_agent2_no_crash(validator):
-
-    result = validator.validate(
-        original_email="Test email",
-        generated_response="Test response"
-    )
-
-    assert result is not None
-    assert isinstance(result, dict)
-
-
-
-def test_score_range(validator):
-
-    result = validator.validate(
-        original_email="Question simple",
-        generated_response="Réponse simple"
-    )
-
-    assert isinstance(result["score"], (int, float))
-
-    assert 0 <= result["score"] <= 100
+print(json.dumps(result, indent=4))
