@@ -23,6 +23,31 @@ class SemanticValidator:
         )
 
 
+    def calculate_score(self, data):
+
+        score = 0
+
+        if data.get("relevant"):
+            score += 25
+
+        if data.get("answers_request"):
+            score += 25
+
+        if data.get("professional"):
+            score += 25
+
+        if data.get("complete"):
+            score += 25
+
+        if data.get("contradiction"):
+            score -= 20
+
+        if data.get("hallucination"):
+            score -= 20
+
+        return max(0, min(score, 100))
+
+
     def validate(
         self,
         original_email: str,
@@ -43,6 +68,7 @@ Generated response:
 Analyze if the response truly satisfies the request.
 
 Rules:
+
 1. If the response refuses to answer:
 - answers_request=false
 - complete=false
@@ -62,7 +88,6 @@ Rules:
 Return ONLY JSON:
 
 {{
-"score":0,
 "relevant":true,
 "answers_request":true,
 "professional":true,
@@ -103,30 +128,36 @@ Return ONLY JSON:
 
             return {
                 "success": True,
-                "score": max(
-                    0,
-                    min(int(data.get("score",0)),100)
-                ),
+
+                "score": self.calculate_score(data),
+
                 "relevant": bool(
-                    data.get("relevant",False)
+                    data.get("relevant", False)
                 ),
+
                 "answers_request": bool(
-                    data.get("answers_request",False)
+                    data.get("answers_request", False)
                 ),
+
                 "professional": bool(
-                    data.get("professional",False)
+                    data.get("professional", False)
                 ),
+
                 "complete": bool(
-                    data.get("complete",False)
+                    data.get("complete", False)
                 ),
+
                 "contradiction": bool(
-                    data.get("contradiction",False)
+                    data.get("contradiction", False)
                 ),
+
                 "hallucination": bool(
-                    data.get("hallucination",False)
+                    data.get("hallucination", False)
                 ),
-                "issues": data.get("issues",[]),
-                "suggestions": data.get("suggestions",[])
+
+                "issues": data.get("issues", []),
+
+                "suggestions": data.get("suggestions", [])
             }
 
 
@@ -136,18 +167,28 @@ Return ONLY JSON:
 
             return {
                 "success": False,
-                "score":0,
-                "relevant":False,
-                "answers_request":False,
-                "professional":False,
-                "complete":False,
-                "contradiction":False,
-                "hallucination":False,
-                "issues":[
+
+                "score": 0,
+
+                "relevant": False,
+
+                "answers_request": False,
+
+                "professional": False,
+
+                "complete": False,
+
+                "contradiction": False,
+
+                "hallucination": False,
+
+                "issues": [
                     "AI validation unavailable"
                 ],
-                "suggestions":[
+
+                "suggestions": [
                     "Human review required"
                 ],
-                "error":str(error)
+
+                "error": str(error)
             }
