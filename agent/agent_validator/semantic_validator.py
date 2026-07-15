@@ -16,7 +16,7 @@ class SemanticValidator:
             base_url=settings.OLLAMA_BASE_URL,
             model=settings.OLLAMA_MODEL,
             temperature=0,
-            num_predict=600,
+            num_predict=128,
             client_kwargs={
                 "timeout": settings.OLLAMA_TIMEOUT_SECONDS
             }
@@ -90,11 +90,22 @@ GENERATED RESPONSE:
         try:
 
             result = self.llm.invoke(
-                [
-                    SystemMessage(content=system_prompt),
-                    HumanMessage(content=user_prompt)
-                ]
-            )
+    """
+Return ONLY this JSON exactly:
+
+{
+    "score": 100,
+    "relevant": true,
+    "answers_request": true,
+    "professional": true,
+    "complete": true,
+    "contradiction": false,
+    "hallucination": false,
+    "issues": [],
+    "suggestions": []
+}
+"""
+)
 
             content = str(result.content).strip()
 
@@ -135,6 +146,8 @@ GENERATED RESPONSE:
 
         except Exception as error:
 
+            print("Semantic Validator Error:", error)
+
             return {
                 "success": False,
                 "score": 0,
@@ -152,3 +165,4 @@ GENERATED RESPONSE:
                 ],
                 "error": str(error)
             }
+
